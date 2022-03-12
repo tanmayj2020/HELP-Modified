@@ -73,10 +73,10 @@ class Data:
         # Randomly selecting some devices as the meta batch for training network
         #num_inner_task denotes number of tasks in a episode 
         # Say 10 meta train devices so selecting 8 devices for a batch 
-        rand_device_idx = torch.randperm(len(self.meta_train_device))[:self.num_inner_task]
+        rand_device_idx = torch.randperm(len(self.meta_train_devices))[:self.num_inner_tasks]
         for t in rand_device_idx:
             # sample device randomly selected for a task 
-            device = self.meta_train_device[t]
+            device = self.meta_train_devices[t]
             # hardware embedding of the device 
             latency = self.latency[device]
             # Calculating the hardware embedding that is unormalized
@@ -121,7 +121,7 @@ class Data:
     
         latency = self.latency[device]
         # hardware embedding
-        hw_embed = latency[self.hw_emb_idx]
+        hw_embed = latency[self.hw_embed_idx]
         hw_embed = normalization(hw_embed, portion=1.0)        
         
         # samples for finetuing & test (query)

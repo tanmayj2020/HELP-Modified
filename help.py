@@ -11,6 +11,7 @@ from utils import *
 import logging 
 import wandb
 from torch.utils.tensorboard import SummaryWriter
+from collections import OrderedDict
 
 
 # Main class 
@@ -32,7 +33,7 @@ class HELP:
         self.save_path = args.save_path
         # Devices
         self.meta_train_devices = args.meta_train_devices
-        self.meta_valid_devics = args.meta_valid_devices
+        self.meta_valid_devices = args.meta_valid_devices
         # Number of inner tasks in a episode
         self.num_inner_tasks = args.num_inner_tasks
         # learning rate
@@ -166,18 +167,53 @@ class HELP:
         return adapted_params, kl
 
 
+    def define_task_lr_params(self):
+        self.task_lr = OrderedDict()
+        for key, val in self.model.named_parameters():
+            self.task_lr[key] = nn.Parameter(
+                1e-3 * torch.ones_like(val))
 
+
+    def get_params_z(self, xs, ys, hw_embed):
+        params = self.model.cloned_params()
+
+        z, kl = self.inference_network((xs, ys, hw_embed))
+        zs = self.z_scaling
+        for i, (name, weight) in enumerate(params.items()):
+            if 'weight' in name:
+                if 'fc3' in name:
+                    idx = 0
+                elif 'fc4' in name:
+                    idx = 1
+                elif 'fc5' in name:
+                    idx = 2
+                else:
+                    continue
+                layer_size = 2*self.layer_size
+                params[name] = weight * (1 + zs*z['w'][idx*layer_size:(idx+1)*layer_size])
+
+            elif 'bias' in name:
+                if 'fc3' in name:
+                    idx = 0
+                elif 'fc4' in name:
+                    idx = 1
+                elif 'fc5' in name:
+                    idx = 2
+                else:
+                    continue
+                params[name] = weight + zs*z['b'][idx]
+            else: raise ValueError(name)
+        return params, kl, z 
 
     def meta_train(self):
         print("=> Starting training...")
+        max_valid_corr = -1
 
         # Whether to use hardware modulator or not 
         if self.z_on:
             # If using modulator which changes theta_0 for adapting better to the task 
             self.inference_network.train()
 
-        # Creating progress baron total number of episodes to train for
-        with tqdm(total=self.num_episodes) as t:
             # Going through all the episodes
             for i_epi in range(self.num_episodes):
                 # List to store adapted parameter for a task to update loss for a episode later
@@ -190,11 +226,11 @@ class HELP:
                     # Getting the task speific values
                     (hw_embed , xs , ys , xq , yq , _) = episode[i_task]
                     # traning on single task 
-                adapted_state_dict, kl_loss = self.train_single_task(hw_embed, xs, ys, self.num_train_updates)
-                # Store adapted parameters
-                # Store dataloaders for meta-update and evaluation
-                adapted_state_dicts.append(adapted_state_dict)
-                query_list.append((hw_embed, xq, yq))
+                    adapted_state_dict, kl_loss = self.train_single_task(hw_embed, xs, ys, self.num_train_updates)
+                    # Store adapted parameters
+                    # Store dataloaders for meta-update and evaluation
+                    adapted_state_dicts.append(adapted_state_dict)
+                    query_list.append((hw_embed, xq, yq))
                 # Update the parameters of meta-learner
                 # Compute losses with adapted parameters along with corresponding tasks
                 # Updated the parameters of meta-learner using sum of the losses
@@ -248,9 +284,7 @@ class HELP:
                                 print(f'==> save {save_path}')
                                 self.model.cuda()
                         logging.info(msg)
-                    t.set_postfix(postfix)
                     print('\n')
-                t.update()
         self.log['meta_train'].save()
         self.log['meta_valid'].save()
         print('==> Training done')

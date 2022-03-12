@@ -108,6 +108,7 @@ class Log():
         return v / cnt
     
 
+
     def get(self, metric, device, i_epi):
         idx = self.epi.index(i_epi)
         return self.elems[metric][device][idx]
@@ -127,6 +128,11 @@ metrics_fn = {
             'kendalltau': lambda yq_hat, yq: kendalltau(flat(yq_hat), flat(yq))
             }
 
+def flat(v):
+    if torch.is_tensor(v):
+        return v.detach().cpu().numpy().reshape(-1)
+    else:
+        return v.reshape(-1)
 
 def normalization(latency , index= None , portion = 0.9):
     if index != None:
